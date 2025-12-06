@@ -4,7 +4,6 @@ from src.constants import *
 from src.game_logic import Board
 from src.ui import UI
 from src.minimax_agent import MinimaxAgent
-# from src.ml_agent import MLAgent (Bỏ comment khi dùng ML)
 
 def main():
     ui = UI()
@@ -43,14 +42,14 @@ def main():
                         board.reset()
                     elif ui.btn_pve_hard.is_clicked(pos):
                         game_mode = "PVE_HARD"
-                        ai_agent = MinimaxAgent(WHITE, depth=DEPTH_HARD) # Hoặc dùng MLAgent
+                        ai_agent = MinimaxAgent(WHITE, depth=DEPTH_HARD)
                         current_state = STATE_PLAYING
                         board.reset()
                     elif ui.btn_quit.is_clicked(pos):
                         pygame.quit()
                         sys.exit()
 
-                # 2. XỬ LÝ CLICK KHI ĐANG CHƠI (CHỈ NGƯỜI CHƠI MỚI BẤM ĐƯỢC)
+                # 2. XỬ LÝ CLICK KHI ĐANG CHƠI
                 elif current_state == STATE_PLAYING:
                     # Nếu là lượt máy thì không nhận click
                     if "PVE" in game_mode and board.turn == WHITE:
@@ -60,7 +59,7 @@ def main():
                     if move:
                         r, c = move
                         if board.make_move(r, c, board.turn):
-                            if board.check_win(board.turn): # Kiểm tra người vừa đánh thắng chưa
+                            if board.check_win(board.turn):
                                 current_state = STATE_GAME_OVER
                             elif board.is_full():
                                 current_state = STATE_GAME_OVER
@@ -98,13 +97,15 @@ def main():
         elif current_state == STATE_PLAYING:
             ui.draw_game(board.board)
         elif current_state == STATE_GAME_OVER:
-            # Xác định text thắng thua
+            # Xác định text thắng thua (PHẢI Ở ĐÂY, trong cùng scope)
             winner_text = "Hòa cờ!"
-            if board.winner == BLACK: winner_text = "Bạn Thắng!" if "PVE" in game_mode else "Quân Đen Thắng!"
-            elif board.winner == WHITE: winner_text = "Máy Thắng!" if "PVE" in game_mode else "Quân Trắng Thắng!"
+            if board.winner == BLACK: 
+                winner_text = "Bạn Thắng!" if "PVE" in game_mode else "Quân Đen Thắng!"
+            elif board.winner == WHITE: 
+                winner_text = "Máy Thắng!" if "PVE" in game_mode else "Quân Trắng Thắng!"
             
-            ui.draw_game(board.board) # Giữ nguyên bàn cờ nền
-            ui.draw_game_over(winner_text)
+            # Vẽ tất cả trong 1 lần gọi để tránh chớp tắt
+            ui.draw_game_over_combined(board.board, winner_text)
 
 if __name__ == "__main__":
     main()

@@ -53,8 +53,16 @@ class UI:
         self.btn_quit = Button("Thoát Game", center_x, 470, 200, 50, "QUIT")
 
         # Nút bấm cho Game Over
-        self.btn_menu = Button("Về Menu", center_x - 110, 450, 100, 50, "MENU")
-        self.btn_restart = Button("Chơi lại", center_x + 10, 450, 100, 50, "RESTART")
+        # Đặt khoảng cách giữa 2 nút là 20px
+        button_width = 100
+        button_spacing = 20
+        total_width = 2 * button_width + button_spacing  # 100 + 20 + 100 = 220
+
+        # Tính vị trí bắt đầu để cả 2 nút nằm giữa màn hình
+        start_x = (SCREEN_WIDTH - total_width) // 2  # (600 - 220)//2 = 190
+
+        self.btn_menu = Button("Về Menu", start_x, 450, button_width, 50, "MENU")
+        self.btn_restart = Button("Chơi lại", start_x + button_width + button_spacing, 450, button_width, 50, "RESTART")
 
     def draw_menu(self):
         self.screen.fill(BG_COLOR)
@@ -127,23 +135,55 @@ class UI:
             # Vẽ thêm viền đen mỏng (width=1) để quân trắng nổi bật trên nền gỗ
             pygame.draw.circle(self.screen, BLACK_COLOR, (cx, cy), radius, 1)
 
-    def draw_game_over(self, winner_text):
-        # Vẽ lớp phủ mờ
+    def draw_game_over_combined(self, board, winner_text):
+        """Vẽ tất cả trong 1 lần gọi: bàn cờ + lớp phủ + nút (Giải pháp chống chớp)"""
+        # 1. Vẽ bàn cờ (gọi phương thức draw_game nhưng KHÔNG gọi flip)
+        self.screen.fill(BG_COLOR)
+        
+        # Vẽ nền bàn cờ
+        board_rect = (MARGIN_X - 20, MARGIN_Y - 20, BOARD_PIXEL_SIZE + 40, BOARD_PIXEL_SIZE + 40)
+        pygame.draw.rect(self.screen, BOARD_COLOR, board_rect, border_radius=5)
+        pygame.draw.rect(self.screen, LINE_COLOR, board_rect, 2, border_radius=5)
+
+        # Vẽ lưới
+        for i in range(BOARD_SIZE):
+            start_x, start_y = MARGIN_X, MARGIN_Y + i * CELL_SIZE
+            end_x, end_y = MARGIN_X + BOARD_PIXEL_SIZE, MARGIN_Y + i * CELL_SIZE
+            pygame.draw.line(self.screen, LINE_COLOR, (start_x, start_y), (end_x, end_y), 1)
+            start_x, start_y = MARGIN_X + i * CELL_SIZE, MARGIN_Y
+            end_x, end_y = MARGIN_X + i * CELL_SIZE, MARGIN_Y + BOARD_PIXEL_SIZE
+            pygame.draw.line(self.screen, LINE_COLOR, (start_x, start_y), (end_x, end_y), 1)
+
+        # Vẽ điểm sao
+        star_points = [3, 7, 11]
+        for r in star_points:
+            for c in star_points:
+                cx = MARGIN_X + c * CELL_SIZE
+                cy = MARGIN_Y + r * CELL_SIZE
+                pygame.draw.circle(self.screen, LINE_COLOR, (cx, cy), 4)
+
+        # Vẽ quân cờ
+        for r in range(BOARD_SIZE):
+            for c in range(BOARD_SIZE):
+                if board[r][c] != EMPTY:
+                    self.draw_piece(r, c, board[r][c])
+        
+        # 2. Vẽ lớp phủ mờ
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 180)) # Đậm hơn chút để dễ đọc chữ
+        overlay.fill((0, 0, 0, 180))  # Màu đen với độ trong suốt 70%
         self.screen.blit(overlay, (0, 0))
 
-        # Text kết quả
-        # Vẽ viền đen cho chữ dễ đọc
-        res_text = self.title_font.render(winner_text, True, (255, 215, 0)) # Màu vàng kim
+        # 3. Text kết quả
+        res_text = self.title_font.render(winner_text, True, (255, 215, 0))  # Màu vàng kim
         self.screen.blit(res_text, (SCREEN_WIDTH//2 - res_text.get_width()//2, 250))
 
-        # Vẽ nút
+        # 4. Vẽ nút (cập nhật hover)
         mouse_pos = pygame.mouse.get_pos()
         for btn in [self.btn_menu, self.btn_restart]:
             btn.check_hover(mouse_pos)
             btn.draw(self.screen, self.font)
         
+        # 5. Cập nhật toàn bộ màn hình 1 lần duy nhất
         pygame.display.flip()
 
     def get_click_on_board(self, pos):
