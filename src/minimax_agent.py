@@ -4,22 +4,29 @@ import numpy as np
 from src.constants import *
 
 class MinimaxAgent:
-    def __init__(self, player_color, depth=2):
+    def __init__(self, player_color, depth=3):
         self.player = player_color
         self.opponent = -player_color
         self.depth = depth
+        
+        # --- TRANSPOSITION TABLE (CACHE) ---
+        # Lưu trữ các thế cờ đã tính
+        # Key: Board string/bytes, Value: (score, depth, flag, best_move)
+        self.transposition_table = {} 
 
     def get_move(self, board_obj):
-        # Nếu bàn cờ trống, đánh vào tâm (Thiên Nguyên)
+        # Nếu bàn cờ trống, đánh vào tâm
         if len(board_obj.history) == 0:
             return (BOARD_SIZE // 2, BOARD_SIZE // 2)
 
+        # Xóa Cache cũ nếu quá lớn để tránh tràn RAM (tùy chọn)
+        if len(self.transposition_table) > 100000:
+            self.transposition_table.clear()
+
         # Gọi Minimax
-        # Alpha: Điểm tốt nhất cho Máy
-        # Beta: Điểm tốt nhất cho Người (máy giả định người chơi hay nhất)
+        # Lúc này có thể tự tin để depth cao hơn
         _, best_move = self.minimax(board_obj, self.depth, -math.inf, math.inf, True)
         
-        # Phòng trường hợp không tìm được nước đi (hiếm), trả về nước random hợp lệ
         if best_move is None:
             valid_moves = board_obj.get_valid_moves()
             if valid_moves:
@@ -28,149 +35,189 @@ class MinimaxAgent:
         return best_move
 
     def minimax(self, board_obj, depth, alpha, beta, is_maximizing):
-        # 1. Kiểm tra trạng thái kết thúc (Terminal State)
+        # 1. TẠO KEY CHO THẾ CỜ HIỆN TẠI
+        # Dùng tobytes() của numpy cực nhanh để làm key hash
+        board_key = board_obj.board.tobytes()
+        
+        # 2. KIỂM TRA TRANSPOSITION TABLE (CACHE)
+        if board_key in self.transposition_table:
+            entry_score, entry_depth, entry_flag, entry_move = self.transposition_table[board_key]
+            # Chỉ dùng kết quả cache nếu độ sâu đã tính (entry_depth) >= độ sâu hiện tại (depth)
+            if entry_depth >= depth:
+                if entry_flag == 'EXACT':
+                    return entry_score, entry_move
+                elif entry_flag == 'LOWERBOUND':
+                    alpha = max(alpha, entry_score)
+                elif entry_flag == 'UPPERBOUND':
+                    beta = min(beta, entry_score)
+                
+                if alpha >= beta:
+                    return entry_score, entry_move
+
+        # 3. KIỂM TRA TRẠNG THÁI KẾT THÚC
         if board_obj.check_win(self.player):
-            return WIN_SCORE, None
+            return WIN_SCORE - (10 - depth), None # Thắng càng sớm càng tốt
         if board_obj.check_win(self.opponent):
-            return -WIN_SCORE, None
+            return -WIN_SCORE + (10 - depth), None # Thua càng muộn càng tốt
         if depth == 0 or board_obj.is_full():
             return self.evaluate_board(board_obj.board, self.player), None
 
-        # 2. Lấy các nước đi khả thi (đã tối ưu vùng lân cận ở game_logic)
+        # 4. LẤY NƯỚC ĐI & SẮP XẾP
         valid_moves = board_obj.get_valid_moves()
         
-        # Sắp xếp nước đi để cắt tỉa Alpha-Beta hiệu quả hơn
-        # Ưu tiên các ô gần trung tâm bàn cờ hơn
+        # Sắp xếp đơn giản theo khoảng cách tâm (Hiệu năng cao)
         center = BOARD_SIZE // 2
         valid_moves.sort(key=lambda m: abs(m[0]-center) + abs(m[1]-center))
 
         best_move = valid_moves[0]
+        original_alpha = alpha # Lưu alpha gốc để xác định flag lưu cache
 
         if is_maximizing:
             max_eval = -math.inf
             for move in valid_moves:
                 board_obj.make_move(move[0], move[1], self.player)
-                current_eval, _ = self.minimax(board_obj, depth - 1, alpha, beta, False)
+                
+                # Truyền alpha, beta vào đệ quy
+                eval_score, _ = self.minimax(board_obj, depth - 1, alpha, beta, False)
+                
                 board_obj.undo_move()
 
-                if current_eval > max_eval:
-                    max_eval = current_eval
+                if eval_score > max_eval:
+                    max_eval = eval_score
                     best_move = move
                 
-                alpha = max(alpha, current_eval)
-                if beta <= alpha: # Cắt tỉa
+                alpha = max(alpha, eval_score)
+                if beta <= alpha:
                     break
-            return max_eval, best_move
-        
-        else: # Lượt người chơi (Minimizing)
+            
+            final_score = max_eval
+        else:
             min_eval = math.inf
             for move in valid_moves:
                 board_obj.make_move(move[0], move[1], self.opponent)
-                current_eval, _ = self.minimax(board_obj, depth - 1, alpha, beta, True)
+                
+                eval_score, _ = self.minimax(board_obj, depth - 1, alpha, beta, True)
+                
                 board_obj.undo_move()
 
-                if current_eval < min_eval:
-                    min_eval = current_eval
+                if eval_score < min_eval:
+                    min_eval = eval_score
                     best_move = move
                 
-                beta = min(beta, current_eval)
-                if beta <= alpha: # Cắt tỉa
+                beta = min(beta, eval_score)
+                if beta <= alpha:
                     break
-            return min_eval, best_move
+            
+            final_score = min_eval
+
+        # 5. LƯU KẾT QUẢ VÀO TRANSPOSITION TABLE
+        flag = 'EXACT'
+        if final_score <= original_alpha:
+            flag = 'UPPERBOUND'
+        elif final_score >= beta:
+            flag = 'LOWERBOUND'
+            
+        self.transposition_table[board_key] = (final_score, depth, flag, best_move)
+        
+        return final_score, best_move
 
     def evaluate_board(self, board, player):
-        """
-        Hàm Heuristic "xịn" hơn:
-        - Quét cả 4 hướng: Ngang, Dọc, Chéo Chính, Chéo Phụ.
-        - Đổi các hàng thành chuỗi string để so khớp mẫu (Pattern Matching).
-        """
+        # Heuristic cải tiến: Nhanh và Chính xác
         score = 0
-        
-        # Chuyển bàn cờ về dạng list các chuỗi để dễ xử lý
         lines = self.get_all_lines(board)
-        
-        # Tính điểm cho Máy (Tấn công)
         score += self.evaluate_lines_score(lines, player)
-        
-        # Tính điểm cho Người (Phòng thủ)
-        # Nhân hệ số cao hơn một chút để AI biết sợ thua
-        score -= self.evaluate_lines_score(lines, -player) * 1.2 
-        
+        score -= self.evaluate_lines_score(lines, -player) * 1.5 # Tăng hệ số phòng thủ lên 1.5
         return score
 
     def get_all_lines(self, board):
         lines = []
-        
-        # 1. Hàng ngang
+        # Ngang
         for r in range(BOARD_SIZE):
             lines.append(board[r, :])
-            
-        # 2. Hàng dọc
+        # Dọc
         for c in range(BOARD_SIZE):
             lines.append(board[:, c])
-            
-        # 3. Đường chéo (Chỉ lấy các đường dài >= 5 ô)
-        # Chéo chính (Top-left to Bottom-right)
+        # Chéo (Dùng numpy lấy chéo siêu nhanh)
+        # Chỉ lấy đường chéo có độ dài >= 5
         for k in range(-BOARD_SIZE + 5, BOARD_SIZE - 4):
-            diag = np.diagonal(board, offset=k)
-            if len(diag) >= 5:
-                lines.append(diag)
-                
-        # Chéo phụ (Top-right to Bottom-left)
-        # Lật ngược bàn cờ trái-phải rồi lấy chéo chính
-        flipped_board = np.fliplr(board)
-        for k in range(-BOARD_SIZE + 5, BOARD_SIZE - 4):
-            diag = np.diagonal(flipped_board, offset=k)
-            if len(diag) >= 5:
-                lines.append(diag)
-                
+            lines.append(np.diagonal(board, offset=k))
+            lines.append(np.diagonal(np.fliplr(board), offset=k))
         return lines
 
     def evaluate_lines_score(self, lines, player):
         total_score = 0
         opponent = -player
         
-        # Chuyển đổi giá trị quân cờ để dễ so khớp chuỗi
-        # 1: Quân mình, 2: Quân địch, 0: Ô trống
-        # Ví dụ: chuỗi [1, 1, 1, 0] -> "1110"
+        # Biến đếm số lượng pattern đặc biệt để phát hiện đánh đôi (Double Threat)
+        count_open_four = 0
+        count_open_three = 0
         
         for line in lines:
-            # Chuyển numpy array thành string
-            # map: player -> '1', opponent -> '2', empty -> '0'
-            s = ""
-            for cell in line:
-                if cell == player: s += "1"
-                elif cell == opponent: s += "2"
-                else: s += "0"
+            if player not in line:
+                continue
+
+            # Vectorization: Map numpy array sang chuỗi ký tự
+            # Player -> 1, Opponent -> 2, Empty -> 0
+            arr = line.copy()
+            s_arr = np.zeros_like(arr)
+            s_arr[arr == player] = 1
+            s_arr[arr == opponent] = 2
+            s = "".join(s_arr.astype(str))
             
-            # --- SO KHỚP MẪU (PATTERN MATCHING) ---
+            # --- CHECK PATTERN TỪ MẠNH ĐẾN YẾU ---
             
-            # 1. Check Win (5 con liên tiếp)
+            # 1. WIN (5 con): Thắng ngay lập tức
             if "11111" in s:
-                return WIN_SCORE # Thắng luôn, không cần tính tiếp
+                return WIN_SCORE
             
-            # 2. Open Four (4 con, 2 đầu trống: 011110) -> Không thể đỡ
-            if "011110" in s:
-                total_score += OPEN_FOUR
-                
-            # 3. Blocked Four (4 con, bị chặn 1 đầu: 211110 hoặc 011112 hoặc ra mép bàn)
-            # Vì ta chỉ check substring nên check cả 2 trường hợp
-            if "01111" in s or "11110" in s:
+            # 2. OPEN FOUR (011110)
+            # Dùng s.count() để đề phòng trường hợp hiếm: 1 dòng có 2 cái open four
+            c_o4 = s.count("011110")
+            if c_o4 > 0:
+                total_score += OPEN_FOUR * c_o4
+                count_open_four += c_o4
+                continue # Đã tìm thấy pattern mạnh nhất dòng này, bỏ qua pattern yếu hơn
+            
+            # 3. BLOCKED FOUR (011112, 11110...)
+            if "11110" in s or "01111" in s:
                 total_score += BLOCKED_FOUR
-            
-            # 4. Open Three (3 con, 2 đầu trống: 01110)
-            # Có thể phát triển thành Open Four
-            if "01110" in s: # Mẫu chuẩn
-                total_score += OPEN_THREE
-            elif "010110" in s or "011010" in s: # Mẫu gãy (Broken three)
-                total_score += OPEN_THREE * 0.8
+                continue
                 
-            # 5. Blocked Three
-            if "001112" in s or "211100" in s or "210110" in s or "011012" in s:
-                total_score += BLOCKED_THREE
+            # 4. OPEN THREE (01110)
+            # Kiểm tra kỹ hơn: Open three thật sự phải không bị chặn lén ở xa
+            # Tuy nhiên để tối ưu tốc độ, ta chấp nhận pattern "01110"
+            c_o3 = s.count("01110")
+            if c_o3 > 0:
+                total_score += OPEN_THREE * c_o3
+                count_open_three += c_o3
+                continue
             
-            # 6. Open Two (0110)
-            if "001100" in s or "01010" in s:
+            # Check Broken Three (011010, 010110) - Loại này yếu hơn Open Three chuẩn
+            if "011010" in s or "010110" in s:
+                total_score += OPEN_THREE
+                # Broken three cũng được tính vào count_open_three để tạo nước đôi
+                count_open_three += 1 
+                continue
+                
+            # 5. BLOCKED THREE
+            if "11100" in s or "00111" in s or "11010" in s or "01011" in s:
+                total_score += BLOCKED_THREE
+                continue
+
+            # 6. OPEN TWO
+            if "0110" in s:
                 total_score += OPEN_TWO
+                continue
+        
+        # --- XỬ LÝ NƯỚC ĐÔI (DOUBLE THREATS) ---
+        
+        # Double Four: 2 đường 4 mở -> Không thể đỡ -> Điểm gần bằng thắng
+        if count_open_four >= 2:
+            total_score += WIN_SCORE // 2 
+            
+        # Double Three: 2 đường 3 mở -> Đối thủ chặn 1 thì mình đi cái kia thành 4 mở -> Thắng
+        # Điểm này phải CAO HƠN Blocked Four (vì Blocked Four đối thủ còn đỡ được)
+        elif count_open_three >= 2:
+            total_score += WIN_SCORE // 4  # Khoảng 25.000.000 điểm -> Ưu tiên cực cao
 
         return total_score
