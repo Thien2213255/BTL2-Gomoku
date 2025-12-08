@@ -4,7 +4,7 @@ from src.constants import *
 from src.game_logic import Board
 from src.ui import UI
 from src.minimax_agent import MinimaxAgent
-
+from src.ml_agent import MLAgent
 def main():
     ui = UI()
     board = Board()
@@ -42,7 +42,7 @@ def main():
                         board.reset()
                     elif ui.btn_pve_hard.is_clicked(pos):
                         game_mode = "PVE_HARD"
-                        ai_agent = MinimaxAgent(WHITE, depth=DEPTH_HARD)
+                        ai_agent = MLAgent(WHITE, model_path="models/gomoku_model.pth")
                         current_state = STATE_PLAYING
                         board.reset()
                     elif ui.btn_quit.is_clicked(pos):
